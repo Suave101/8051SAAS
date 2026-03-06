@@ -1,20 +1,30 @@
+'use client';
+import { useState } from 'react';
 import AssemblyEditor from '../components/AssemblyEditor';
+import CpuVisualizer from '../components/CpuVisualizer';
+
+// Define the shape of our CPU state
+export interface CpuState {
+  a: number; b: number; pc: number; sp: number; psw: number;
+  ram: Uint8Array;
+}
 
 export default function Home() {
-  return (
-    <main className="flex min-h-screen bg-gray-950">
-      {/* Left Column: The Monaco Editor */}
-      <div className="w-1/2 border-r border-gray-700">
-        <AssemblyEditor />
-      </div>
+  // Default state before any code runs
+  const [cpuState, setCpuState] = useState<CpuState>({
+    a: 0, b: 0, pc: 0, sp: 7, psw: 0,
+    ram: new Uint8Array(256), // Array of 256 zeroes
+  });
 
-      {/* Right Column: The Future Visualizer */}
-      <div className="w-1/2 p-8 text-white">
-        <h1 className="text-2xl font-bold mb-4">CPU State (Coming Soon)</h1>
-        <p className="text-gray-400">
-          This is where we will render the Accumulator, Registers, and RAM 
-          based on the WebAssembly emulator output.
-        </p>
+  return (
+    <main className="flex h-screen w-full bg-base-100 overflow-hidden">
+      <div className="w-1/2 border-r border-base-300 h-full">
+        {/* Pass down a function to update the state */}
+        <AssemblyEditor onRunSuccess={(newState) => setCpuState(newState)} />
+      </div>
+      <div className="w-1/2 h-full">
+        {/* Pass down the state to be displayed */}
+        <CpuVisualizer cpuState={cpuState} />
       </div>
     </main>
   );

@@ -24,3 +24,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.pc-highlight {
+  background-color: rgba(234, 179, 8, 0.3) !important; /* Tailwind yellow-500 with opacity */
+}
