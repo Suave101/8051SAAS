@@ -19,7 +19,7 @@ pub struct VmResult {
 
 #[wasm_bindgen]
 impl VmResult {
-    // Property-style getters (wasm-bindgen generates JS getters)
+    // Property-style getters
     #[wasm_bindgen(getter)]
     pub fn ram(&self) -> Vec<u8> { self.ram.clone() }
 
@@ -29,8 +29,11 @@ impl VmResult {
     #[wasm_bindgen(getter)]
     pub fn error(&self) -> String { self.error_message.clone() }
 
-    // Method-style getters kept for JS callers that invoke get_ram/get_rom
+    // Method-style getters for the JS callers (e.g., result.get_ram())
+    #[wasm_bindgen]
     pub fn get_ram(&self) -> Vec<u8> { self.ram.clone() }
+
+    #[wasm_bindgen]
     pub fn get_rom(&self) -> Vec<u8> { self.rom.clone() }
 
     pub fn has_error(&self) -> bool { !self.error_message.is_empty() }
@@ -47,7 +50,7 @@ impl Default for Emulator {
     fn default() -> Self {
         Self {
             cpu: cpu::Cpu::new(),
-        rom: vec![0; ROM_SIZE],
+            rom: vec![0; ROM_SIZE],
             pc_to_line: Vec::new(),
         }
     }
@@ -84,7 +87,6 @@ impl Emulator {
         self.current_state()
     }
 
-    // Call this once after load_code to update the UI's ROM grid
     pub fn get_rom(&self) -> Vec<u8> {
         self.rom.clone()
     }
