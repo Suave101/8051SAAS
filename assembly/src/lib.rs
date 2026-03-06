@@ -8,7 +8,7 @@ const ROM_SIZE: usize = 256;
 #[wasm_bindgen]
 pub struct VmResult {
     error_message: String,
-    // We remove ROM from here because it shouldn't be cloned every step
+    rom: Vec<u8>,
     ram: Vec<u8>,
     pub a: u8,
     pub b: u8,
@@ -19,19 +19,21 @@ pub struct VmResult {
 
 #[wasm_bindgen]
 impl VmResult {
+    // Property-style getters (wasm-bindgen generates JS getters)
     #[wasm_bindgen(getter)]
-    pub fn ram(&self) -> Vec<u8> {
-        self.ram.clone()
-    }
+    pub fn ram(&self) -> Vec<u8> { self.ram.clone() }
 
     #[wasm_bindgen(getter)]
-    pub fn error(&self) -> String {
-        self.error_message.clone()
-    }
+    pub fn rom(&self) -> Vec<u8> { self.rom.clone() }
 
-    pub fn has_error(&self) -> bool {
-        !self.error_message.is_empty()
-    }
+    #[wasm_bindgen(getter)]
+    pub fn error(&self) -> String { self.error_message.clone() }
+
+    // Method-style getters kept for JS callers that invoke get_ram/get_rom
+    pub fn get_ram(&self) -> Vec<u8> { self.ram.clone() }
+    pub fn get_rom(&self) -> Vec<u8> { self.rom.clone() }
+
+    pub fn has_error(&self) -> bool { !self.error_message.is_empty() }
 }
 
 #[wasm_bindgen]
@@ -45,7 +47,7 @@ impl Default for Emulator {
     fn default() -> Self {
         Self {
             cpu: cpu::Cpu::new(),
-            rom: vec![0; ROM_SIZE],
+        rom: vec![0; ROM_SIZE],
             pc_to_line: Vec::new(),
         }
     }
@@ -94,6 +96,7 @@ impl Emulator {
     fn current_state(&self) -> VmResult {
         VmResult {
             error_message: String::new(),
+            rom: self.rom.clone(),
             ram: self.cpu.ram.clone(),
             a: self.cpu.a,
             b: self.cpu.b,
