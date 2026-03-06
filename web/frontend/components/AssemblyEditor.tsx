@@ -6,7 +6,7 @@ import init, { Emulator } from 'engine';
 import { 
   Cpu, 
   FolderOpen, 
-  Download, 
+  Save, 
   RotateCcw, 
   StepForward, 
   Play, 
@@ -28,7 +28,7 @@ export default function AssemblyEditor({ onRunSuccess }: EditorProps) {
   const [isWasmReady, setIsWasmReady] = useState(false);
   const [isAssembled, setIsAssembled] = useState(true);
 
-  // --- 1. BOOT ENGINE & INJECT STYLES ---
+  // --- 1. BOOT ENGINE & STYLE INJECTION ---
   useEffect(() => {
     const setup = async () => {
       try {
@@ -41,25 +41,25 @@ export default function AssemblyEditor({ onRunSuccess }: EditorProps) {
     };
     setup();
 
-    // Injecting the PC highlight style dynamically
+    // Inject PC line highlight CSS
     const style = document.createElement('style');
     style.innerHTML = `
       .pc-highlight {
-        background: rgba(59, 130, 246, 0.2);
-        border-left: 3px solid #3b82f6;
+        background: rgba(59, 130, 246, 0.15);
+        border-left: 4px solid #3b82f6;
         width: 100% !important;
       }
     `;
     document.head.appendChild(style);
   }, []);
 
-  // --- 2. 8051 LANGUAGE DEFINITION ---
+  // --- 2. 8051 SYNTAX HIGHLIGHTING ---
   useEffect(() => {
     if (monaco) {
       monaco.languages.register({ id: '8051' });
       monaco.languages.setMonarchTokensProvider('8051', {
         ignoreCase: true,
-        keywords: ['MOV', 'INC', 'DEC', 'ADD', 'ADDC', 'SUBB', 'MUL', 'DIV', 'ANL', 'ORL', 'XRL', 'JMP', 'JZ', 'JNZ', 'CJNE', 'DJNZ', 'NOP', 'RET', 'CLR', 'SETB'],
+        keywords: ['MOV', 'INC', 'DEC', 'ADD', 'ADDC', 'SUBB', 'MUL', 'DIV', 'ANL', 'ORL', 'XRL', 'JMP', 'JZ', 'JNZ', 'CJNE', 'DJNZ', 'NOP', 'RET', 'CLR', 'SETB', 'END'],
         registers: ['A', 'B', 'R0', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'DPTR', 'PC', 'PSW', 'SP'],
         tokenizer: {
           root: [
@@ -76,10 +76,11 @@ export default function AssemblyEditor({ onRunSuccess }: EditorProps) {
     }
   }, [monaco]);
 
-  // --- 3. LOGIC HANDLERS ---
+  // --- 3. EXECUTION LOGIC ---
   const validateCode = (text: string) => {
     if (!isWasmReady || !monaco || !editorRef.current) return;
     
+    // Pass the actual editor text (string) to Rust
     const errorText = emulatorRef.current.load_code(text);
     const markers: any[] = [];
 
@@ -104,52 +105,55 @@ export default function AssemblyEditor({ onRunSuccess }: EditorProps) {
     if (model) monaco.editor.setModelMarkers(model, "8051", markers);
   };
 
-  const updateEditorHighlight = (pc: number) => {
-    if (!decorationsRef.current || !monaco) return;
-    const sourceMap = emulatorRef.current.get_source_map();
-    const lineNum = sourceMap[pc];
+  const updateVisuals = (result: any) => {
+    // Send FULL state to dashboard, including the updated ROM bytes
+    onRunSuccess({
+      a: result.a, b: result.b, pc: result.pc, psw: result.psw, sp: result.sp,
+      ram: result.get_ram(),
+      rom: result.get_rom() 
+    });
 
-    if (lineNum) {
-      decorationsRef.current.set([{
-        range: new monaco.Range(lineNum, 1, lineNum, 1),
-        options: { isWholeLine: true, className: 'pc-highlight' }
-      }]);
-      editorRef.current.revealLineInCenterIfOutsideViewport(lineNum);
+    // Update PC Highlight in editor
+    if (decorationsRef.current) {
+      const sourceMap = emulatorRef.current.get_source_map();
+      const lineNum = sourceMap[result.pc];
+      if (lineNum) {
+        decorationsRef.current.set([{
+          range: new monaco.Range(lineNum, 1, lineNum, 1),
+          options: { isWholeLine: true, className: 'pc-highlight' }
+        }]);
+        editorRef.current.revealLineInCenterIfOutsideViewport(lineNum);
+      }
     }
   };
 
   const handleRun = () => {
     if (!isAssembled) return;
     const result = emulatorRef.current.run_all();
-    onRunSuccess({
-      a: result.a, b: result.b, pc: result.pc, psw: result.psw, sp: result.sp,
-      ram: result.get_ram(), rom: result.get_rom()
-    });
-    updateEditorHighlight(result.pc);
+    updateVisuals(result);
   };
 
   const handleStep = () => {
+    if (!isAssembled) return;
     const result = emulatorRef.current.step();
-    onRunSuccess({
-      a: result.a, b: result.b, pc: result.pc, psw: result.psw, sp: result.sp,
-      ram: result.get_ram(), rom: result.get_rom()
-    });
-    updateEditorHighlight(result.pc);
+    updateVisuals(result);
   };
 
   const handleReset = () => {
     const text = editorRef.current?.getValue() || "";
-    emulatorRef.current.load_code(text);
+    emulatorRef.current.load_code(text); 
     decorationsRef.current?.set([]);
+    
+    // Clear visualizer but keep ROM loaded
     onRunSuccess({
       a: 0, b: 0, pc: 0, psw: 0, sp: 0x07,
-      ram: new Uint8Array(256), rom: emulatorRef.current.get_rom()
+      ram: new Uint8Array(256), 
+      rom: emulatorRef.current.get_rom()
     });
   };
 
-  // --- 4. UI RENDER ---
   return (
-    <div className="h-screen w-full flex flex-col bg-[#1e1e1e] border-r border-white/10">
+    <div className="h-full w-full flex flex-col bg-[#1e1e1e] border-r border-white/10">
       <input 
         type="file" ref={fileInputRef} className="hidden" 
         onChange={(e) => {
@@ -165,83 +169,77 @@ export default function AssemblyEditor({ onRunSuccess }: EditorProps) {
         }} 
       />
 
-      {/* TOOLBAR */}
-      <div className="flex items-center justify-between px-3 py-2 bg-[#252526] border-b border-black shadow-md">
+      {/* TOP TOOLBAR */}
+      <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-black shadow-lg">
         <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-blue-600 rounded-lg shadow-inner">
-            <Cpu size={16} className="text-white" />
+          <div className="p-1.5 bg-blue-600 rounded shadow-md">
+            <Cpu size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-[10px] font-black uppercase tracking-widest text-white/40 leading-none">MCS-51</h1>
-            <h2 className="text-xs font-bold text-white leading-tight">Assembly Editor</h2>
+            <h1 className="text-[10px] font-black uppercase tracking-widest text-blue-400 leading-none">MCS-51</h1>
+            <h2 className="text-sm font-bold text-white leading-tight">Simulator Core</h2>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* File Actions */}
-          <div className="flex bg-black/20 p-1 rounded-md border border-white/5 mr-2">
-            <button onClick={() => fileInputRef.current?.click()} className="btn btn-ghost btn-xs text-white/60 hover:text-white gap-1.5">
-              <FolderOpen size={13} /> Load
+          {/* Group: File Ops */}
+          <div className="flex bg-black/30 p-1 rounded border border-white/5 mr-2">
+            <button onClick={() => fileInputRef.current?.click()} className="btn btn-ghost btn-xs text-white/70 hover:text-white gap-2">
+              <FolderOpen size={14} /> Load
             </button>
             <button 
               onClick={() => {
                 const blob = new Blob([editorRef.current?.getValue()], {type: 'text/plain'});
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = 'code.asm'; a.click();
+                const a = document.createElement('a'); a.href = url; a.download = 'main.asm'; a.click();
               }} 
-              className="btn btn-ghost btn-xs text-white/60 hover:text-white gap-1.5"
+              className="btn btn-ghost btn-xs text-white/70 hover:text-white gap-2"
             >
-              <Download size={13} /> Save
+              <Save size={14} /> Save
             </button>
           </div>
 
-          {/* Logic Actions */}
-          <button onClick={handleReset} className="btn btn-ghost btn-xs text-orange-400 hover:bg-orange-400/10 gap-1.5">
-            <RotateCcw size={13} /> Reset
+          {/* Group: Execution */}
+          <button onClick={handleReset} className="btn btn-ghost btn-xs text-orange-400 hover:bg-orange-400/10 gap-2">
+            <RotateCcw size={14} /> Reset
           </button>
           
-          <button onClick={handleStep} className="btn btn-info btn-xs text-[10px] font-bold gap-1.5 shadow-lg px-3">
-            <StepForward size={13} /> Step
+          <button onClick={handleStep} className="btn btn-info btn-xs font-bold gap-2 px-3 shadow-md">
+            <StepForward size={14} /> Step
           </button>
 
           <button 
             onClick={handleRun} 
             disabled={!isAssembled}
-            className={`btn btn-xs text-[10px] font-bold gap-1.5 px-5 shadow-lg transition-all ${
-              isAssembled ? 'btn-success' : 'btn-disabled opacity-30'
+            className={`btn btn-xs font-bold gap-2 px-6 shadow-md transition-all ${
+              isAssembled ? 'btn-success' : 'btn-disabled opacity-20'
             }`}
           >
-            <Play size={13} fill="currentColor" /> Run
+            <Play size={14} fill="currentColor" /> Run
           </button>
         </div>
       </div>
 
-      {/* STATUS BAR */}
-      <div className="flex items-center px-4 py-1 bg-black/20 text-[10px] border-b border-white/5">
+      {/* ASSEMBLY STATUS BAR */}
+      <div className="flex items-center px-4 py-1.5 bg-black/40 text-[10px] border-b border-white/5 font-mono">
         {isAssembled ? (
-          <div className="flex items-center gap-1.5 text-success">
-            <CheckCircle2 size={10} /> <span>Assembler Ready</span>
+          <div className="flex items-center gap-2 text-emerald-400">
+            <CheckCircle2 size={12} /> <span className="uppercase tracking-wider">Assembler Ready</span>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-error animate-pulse">
-            <AlertCircle size={10} /> <span>Syntax Errors Detected</span>
+          <div className="flex items-center gap-2 text-rose-400 animate-pulse">
+            <AlertCircle size={12} /> <span className="uppercase tracking-wider">Syntax Errors Detected</span>
           </div>
         )}
       </div>
 
-      {/* EDITOR */}
-      <div className="flex-1 relative overflow-hidden">
-        {!isWasmReady && (
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#1e1e1e] gap-4">
-            <span className="loading loading-ring loading-lg text-primary"></span>
-            <span className="text-[10px] uppercase tracking-widest text-white/30 font-bold">Initializing Wasm...</span>
-          </div>
-        )}
+      {/* MONACO EDITOR */}
+      <div className="flex-1 relative">
         <Editor
           height="100%"
           language="8051"
           theme="vs-dark"
-          defaultValue={"; Welcome to 8051 IDE\n\nMOV A, #10H\nMOV R0, #20H\nADD A, R0\nEND"}
+          defaultValue={"; 8051 Assembly\nMOV A, #10H\nMOV R0, #20H\nADD A, R0\nEND"}
           onMount={(editor) => {
             editorRef.current = editor;
             decorationsRef.current = editor.createDecorationsCollection([]);
@@ -250,12 +248,12 @@ export default function AssemblyEditor({ onRunSuccess }: EditorProps) {
           onChange={(val) => validateCode(val || '')}
           options={{
             minimap: { enabled: false },
-            fontSize: 15,
-            lineNumbersMinChars: 3,
+            fontSize: 16,
             fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+            lineNumbersMinChars: 4,
             cursorSmoothCaretAnimation: "on",
             smoothScrolling: true,
-            padding: { top: 10 }
+            padding: { top: 16 }
           }}
         />
       </div>

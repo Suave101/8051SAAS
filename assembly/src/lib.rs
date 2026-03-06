@@ -3,10 +3,12 @@ use wasm_bindgen::prelude::*;
 pub mod assembler;
 pub mod cpu;
 
+const ROM_SIZE: usize = 256;
+
 #[wasm_bindgen]
 pub struct VmResult {
     error_message: String,
-    rom: Vec<u8>,
+    // We remove ROM from here because it shouldn't be cloned every step
     ram: Vec<u8>,
     pub a: u8,
     pub b: u8,
@@ -17,10 +19,19 @@ pub struct VmResult {
 
 #[wasm_bindgen]
 impl VmResult {
-    pub fn get_rom(&self) -> Vec<u8> { self.rom.clone() }
-    pub fn get_ram(&self) -> Vec<u8> { self.ram.clone() }
-    pub fn get_error(&self) -> String { self.error_message.clone() }
-    pub fn has_error(&self) -> bool { !self.error_message.is_empty() }
+    #[wasm_bindgen(getter)]
+    pub fn ram(&self) -> Vec<u8> {
+        self.ram.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn error(&self) -> String {
+        self.error_message.clone()
+    }
+
+    pub fn has_error(&self) -> bool {
+        !self.error_message.is_empty()
+    }
 }
 
 #[wasm_bindgen]
@@ -30,44 +41,48 @@ pub struct Emulator {
     pc_to_line: Vec<u32>,
 }
 
+impl Default for Emulator {
+    fn default() -> Self {
+        Self {
+            cpu: cpu::Cpu::new(),
+            rom: vec![0; ROM_SIZE],
+            pc_to_line: Vec::new(),
+        }
+    }
+}
+
 #[wasm_bindgen]
 impl Emulator {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Emulator {
-        Emulator {
-            cpu: cpu::Cpu::new(),
-            rom: vec![0; 256], // Initialize with 256 bytes of empty ROM
-            pc_to_line: Vec::new(),
-        }
+        Emulator::default()
     }
 
     pub fn load_code(&mut self, source_text: &str) -> String {
-        // Reset the CPU state whenever new code is loaded
         self.cpu = cpu::Cpu::new();
-        
+
         match assembler::assemble(source_text) {
-            Ok((compiled_rom, source_map)) => {
+            Ok((mut compiled_rom, source_map)) => {
+                compiled_rom.resize(ROM_SIZE, 0);
                 self.rom = compiled_rom;
                 self.pc_to_line = source_map;
-                String::new() // Success: No error message
-            },
-            Err(e) => e // Return the assembly error string
+                String::new()
+            }
+            Err(e) => e,
         }
     }
 
     pub fn step(&mut self) -> VmResult {
-        // 8051 Instructions vary in length. cpu.execute should handle 
-        // fetching bytes from self.rom based on the current PC.
-        self.cpu.execute(&self.rom, 1); 
-        self.get_state()
+        self.cpu.execute(&self.rom, 1);
+        self.current_state()
     }
 
     pub fn run_all(&mut self) -> VmResult {
-        // Safety limit: 10k cycles to prevent browser hang on infinite loops
-        self.cpu.execute(&self.rom, 10000); 
-        self.get_state()
+        self.cpu.execute(&self.rom, 10_000);
+        self.current_state()
     }
 
+    // Call this once after load_code to update the UI's ROM grid
     pub fn get_rom(&self) -> Vec<u8> {
         self.rom.clone()
     }
@@ -76,11 +91,9 @@ impl Emulator {
         self.pc_to_line.clone()
     }
 
-    // Internal helper to sync the Rust state to the JS-friendly VmResult
-    fn get_state(&self) -> VmResult {
+    fn current_state(&self) -> VmResult {
         VmResult {
             error_message: String::new(),
-            rom: self.rom.clone(), // This ensures Code Memory tab isn't zero!
             ram: self.cpu.ram.clone(),
             a: self.cpu.a,
             b: self.cpu.b,
